@@ -18,6 +18,7 @@ var PNG = function(){
 	this.palette = null;
 	this.pixels = null;
 	this.trns = null;
+	this.text = {};
 
 };
 

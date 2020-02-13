@@ -40,6 +40,15 @@ function bufferToString(buffer){
 	return str;
 }
 
+function bufferToUTF8(buffer) {
+	let utf8decoder = new TextDecoder(); // default 'utf-8' or 'utf8'
+	let uint = new Uint8Array(buffer.length);
+	for (var i=0; i<buffer.length; i++) {
+		uint[i] = buffer[i];
+	}
+	return utf8decoder.decode(uint);
+}
+
 var PNGReader = function(bytes){
 
 	if (typeof bytes == 'string'){
@@ -119,6 +128,9 @@ PNGReader.prototype.decodeChunk = function(){
 		case 'IDAT': this.decodeIDAT(chunk); break;
 		case 'tRNS': this.decodeTRNS(chunk); break;
 		case 'IEND': this.decodeIEND(chunk); break;
+		case 'tEXt': this.decodeTEXT(chunk); break;
+		case 'zTXt': this.decodeZTXT(chunk); break;
+		case 'iTXt': this.decodeITXT(chunk); break;
 	}
 
 	return type;
@@ -177,6 +189,73 @@ PNGReader.prototype.decodeTRNS = function(chunk) {
  * http://www.w3.org/TR/2003/REC-PNG-20031110/#11IEND
  */
 PNGReader.prototype.decodeIEND = function(){
+};
+
+/**
+ * http://www.w3.org/TR/2003/REC-PNG-20031110/#11tEXt
+ */
+PNGReader.prototype.decodeTEXT = function(chunk) {
+	var png = this.png;
+	let keyword_length = chunk.indexOf(0, 0);
+	let keyword = bufferToString(chunk.slice(0, keyword_length));
+	let value = bufferToString(chunk.slice(keyword_length+1));
+	png.text[keyword] = value;
+};
+
+/**
+ * http://www.w3.org/TR/2003/REC-PNG-20031110/#11zTXt
+ */
+PNGReader.prototype.decodeZTXT = function(chunk) {
+	var png = this.png;
+	let keyword_length = chunk.indexOf(0, 0);
+	let keyword = bufferToString(chunk.slice(0, keyword_length));
+	let compressionMethod = chunk[keyword_length+1]; // only allowed value is 0: zlib
+	var data = chunk.slice(keyword_length+2);
+	inflate(data, function(err, data){
+		if (data) {
+			try {
+				png.text[keyword] = bufferToString(data);
+			}
+			catch(e) {
+				// just do nothing
+			}
+		}
+	});
+};
+
+/**
+ * http://www.w3.org/TR/2003/REC-PNG-20031110/#11iTXt
+ */
+
+PNGReader.prototype.decodeITXT = function(chunk) {
+	var png = this.png;
+	// keyword is delimited by first zero (null) character:
+	let keyword_length = chunk.indexOf(0, 0);
+	let keyword = bufferToString(chunk.slice(0, keyword_length));
+
+	let compressionFlag = chunk[keyword_length+1];
+	let compressionMethod = chunk[keyword_length+2]; // only zero supported
+	let languageTag_end = chunk.indexOf(0, keyword_length+3);
+	let languageTag = bufferToString(chunk.slice(keyword_length+3, languageTag_end));
+	let translatedKeyword_end = chunk.indexOf(0, languageTag_end+1);
+	let translatedKeyword = bufferToUTF8(chunk.slice(languageTag_end+1, translatedKeyword_end));
+
+	var data = chunk.slice(translatedKeyword_end+1);
+	if (compressionFlag == 1) {
+		inflate(data, function(err, data){
+			if (data) {
+				try {
+					png.text[keyword] = bufferToUTF8(data);
+				}
+				catch(e) {
+					// just do nothing
+				}
+			}
+		});
+	}
+	else {
+		png.text[keyword] = bufferToUTF8(data);
+	}
 };
 
 /**
